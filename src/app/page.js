@@ -8,7 +8,7 @@ import { ShieldCheck, Lock, User, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [loginInput, setLoginInput] = useState(''); // Email or Member ID
+  const [loginInput, setLoginInput] = useState(''); // Email, Leader ID, or Member ID
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -21,44 +21,71 @@ export default function LoginPage() {
     const inputClean = loginInput.trim();
 
     try {
-      // 1. ഇമെയിൽ ആണെങ്കിൽ Firebase Auth വഴി ലോഗിൻ ചെയ്യുക (Admin / Leader)
+      // 1. അഡ്മിൻ ഇമെയിൽ വഴി ലോഗിൻ ചെയ്താൽ (Firebase Auth)
       if (inputClean.includes('@')) {
-        await signInWithEmailAndPassword(auth, inputClean, password);
-        localStorage.removeItem('loggedInMember'); // Clear member session if admin logs in
+        await signInWithEmailAndPassword(auth, inputClean.toLowerCase(), password);
+        localStorage.removeItem('loggedInUser');
         router.push('/admin');
         return;
       }
 
-      // 2. Member ID ആണെങ്കിൽ (Direct Firestore Match - Direct Member Login)
-      const cleanMemberId = inputClean.toUpperCase();
-      const membersRef = collection(db, 'members');
-      const q = query(membersRef, where('memberId', '==', cleanMemberId));
-      const querySnapshot = await getDocs(q);
+      // 2. Leader ID അല്ലെങ്കിൽ Member ID വഴി ലോഗിൻ ചെയ്താൽ (Direct Firestore Check)
+      const cleanId = inputClean.toUpperCase();
 
-      if (querySnapshot.empty) {
-        setError('ഈ Member ID സിസ്റ്റത്തിൽ കണ്ടെത്തിയില്ല! ❌');
-        setLoading(false);
-        return;
-      }
+      // എ) ആദ്യം Users Collection-ൽ (Leader Check) നോക്കുന്നു
+      const usersRef = collection(db, 'users');
+      const qUser = query(usersRef, where('username', '==', cleanId));
+      const userSnap = await getDocs(qUser);
 
-      let matchedMember = null;
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (data.password === password.trim()) {
-          matchedMember = { id: docSnap.id, ...data };
+      if (!userSnap.empty) {
+        let matchedUser = null;
+        userSnap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.password === password.trim()) {
+            matchedUser = { id: docSnap.id, ...data };
+          }
+        });
+
+        if (matchedUser) {
+          localStorage.setItem('loggedInUser', JSON.stringify(matchedUser));
+          router.push('/admin');
+          return;
+        } else {
+          setError('പാസ്‌വേഡ് തെറ്റാണ്! ❌');
+          setLoading(false);
+          return;
         }
-      });
-
-      if (matchedMember) {
-        // അംഗത്തിന്റെ വിവരങ്ങൾ ലോക്കൽ സ്റ്റോറേജിൽ സേവ് ചെയ്ത് ഡാഷ്ബോർഡിലേക്ക് തിരിച്ചുവിടുന്നു
-        localStorage.setItem('loggedInMember', JSON.stringify(matchedMember));
-        router.push('/admin');
-      } else {
-        setError('പാസ്‌വേഡ് തെറ്റാണ്! ❌');
       }
+
+      // ബി) മെമ്പർ ഐഡി ചെക്ക് ചെയ്യുന്നു (Member Check)
+      const membersRef = collection(db, 'members');
+      const qMember = query(membersRef, where('memberId', '==', cleanId));
+      const memberSnap = await getDocs(qMember);
+
+      if (!memberSnap.empty) {
+        let matchedMember = null;
+        memberSnap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.password === password.trim()) {
+            matchedMember = { id: docSnap.id, role: 'member', ...data };
+          }
+        });
+
+        if (matchedMember) {
+          localStorage.setItem('loggedInUser', JSON.stringify(matchedMember));
+          router.push('/admin');
+          return;
+        } else {
+          setError('പാസ്‌വേഡ് തെറ്റാണ്! ❌');
+          setLoading(false);
+          return;
+        }
+      }
+
+      setError('ഈ ലോഗിൻ ഐഡി സിസ്റ്റത്തിൽ കണ്ടെത്തിയില്ല! ❌');
     } catch (err) {
       console.error('Login error:', err);
-      setError('ലോഗിൻ ചെയ്യാനായില്ല! വിവരങ്ങൾ വീണ്ടും പരിശോധിക്കുക.');
+      setError('ലോഗിൻ ചെയ്യാനായില്ല! ഐഡിയോ പാസ്‌വേഡോ പരിശോധിക്കുക.');
     } finally {
       setLoading(false);
     }
@@ -71,7 +98,7 @@ export default function LoginPage() {
           <div className="bg-emerald-100 text-emerald-600 p-3 rounded-2xl w-fit mx-auto">
             <ShieldCheck className="w-8 h-8" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-800">സുന്ദൂഖുൽ മുവാസാത്ത്</h2>
+          <h2 className="text-2xl font-bold text-slate-800">സുൻദൂഖുൽ മുവാസാത്ത്</h2>
           <p className="text-xs text-slate-500 font-medium">ലോഗിൻ ചെയ്യുന്നതിനായി വിവരങ്ങൾ നൽകുക</p>
         </div>
 
@@ -84,14 +111,14 @@ export default function LoginPage() {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">
-              ഇമെയിൽ അല്ലെങ്കിൽ Member ID (e.g., C1, C2)
+              ലോഗിൻ ഐഡി
             </label>
             <div className="relative">
               <User className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
               <input
                 type="text"
                 required
-                placeholder="Email or Member ID"
+                placeholder="Enter your UID"
                 value={loginInput}
                 onChange={(e) => setLoginInput(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 uppercase"

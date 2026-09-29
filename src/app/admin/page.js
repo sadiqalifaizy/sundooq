@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth, db } from '../lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, onSnapshot, addDoc, deleteDoc, doc as firestoreDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, onSnapshot, addDoc, deleteDoc, doc as firestoreDoc, serverTimestamp } from 'firebase/firestore';
 import { 
   ShieldCheck, LogOut, Wallet, ArrowUpRight, ArrowDownLeft, 
-  FileText, Loader2, PiggyBank, HandCoins, PlusCircle, X, Filter, Table, Trash2, History, UserPlus, CheckCircle2, Printer, Download, UserCheck
+  FileText, Loader2, PiggyBank, HandCoins, PlusCircle, X, Filter, Table, Trash2, History, UserPlus, CheckCircle2, Printer, Download, UserCheck, BookOpen
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -40,15 +40,16 @@ export default function AdminDashboard() {
   const [note, setNote] = useState('');
 
   // Member Form Field സ്റ്റേറ്റുകൾ
-  const [newMemberIdNumber, setNewMemberIdNumber] = useState(''); // Number portion only
+  const [newMemberIdNumber, setNewMemberIdNumber] = useState(''); 
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberPhone, setNewMemberPhone] = useState('');
   const [newMemberPassword, setNewMemberPassword] = useState('');
   const [newMemberGroup, setNewMemberGroup] = useState('A');
 
-  // Leader Form Field സ്റ്റേറ്റുകൾ
-  const [newLeaderEmail, setNewLeaderEmail] = useState('');
+  // Leader Form Field സ്റ്റേറ്റുകൾ 👑
+  const [newLeaderUsername, setNewLeaderUsername] = useState('');
   const [newLeaderName, setNewLeaderName] = useState('');
+  const [newLeaderPassword, setNewLeaderPassword] = useState('');
   const [newLeaderGroup, setNewLeaderGroup] = useState('A');
 
   // ഡാറ്റാ സ്റ്റേറ്റുകൾ
@@ -62,23 +63,23 @@ export default function AdminDashboard() {
   });
 
   useEffect(() => {
-    // 1. Local Storage Check for Direct Member Login
-    const storedMember = localStorage.getItem('loggedInMember');
-    if (storedMember) {
+    // 1. Local Storage Check for Direct Member / Leader Login
+    const storedUser = localStorage.getItem('loggedInUser');
+    if (storedUser) {
       try {
-        const memberData = JSON.parse(storedMember);
+        const userData = JSON.parse(storedUser);
         setAuthorized(true);
-        setUserRole('member');
-        setUserGroup(memberData.group || 'A');
-        setUserMemberId(memberData.memberId || '');
+        setUserRole(userData.role || 'member');
+        setUserGroup(userData.group || 'A');
+        setUserMemberId(userData.memberId || userData.username || '');
         setLoading(false);
         return;
       } catch (e) {
-        console.error('Error parsing stored member:', e);
+        console.error('Error parsing stored user:', e);
       }
     }
 
-    // 2. Auth Check for Admin / Leader
+    // 2. Auth Check for Admin / Leader (Firebase Auth)
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
@@ -225,7 +226,7 @@ export default function AdminDashboard() {
     }
   };
 
-  // Handle Add Member with Auto Group Prefix (e.g. Group C -> C1, C2)
+  // Handle Add Member with Auto Group Prefix
   const handleAddMember = async (e) => {
     e.preventDefault();
     if (!newMemberIdNumber.trim() || !newMemberName.trim()) {
@@ -263,24 +264,28 @@ export default function AdminDashboard() {
   // Handle Add Leader Profile in Firestore
   const handleAddLeader = async (e) => {
     e.preventDefault();
-    if (!newLeaderEmail.trim() || !newLeaderName.trim()) {
-      return alert('ദയവായി ലീഡറുടെ ഇമെയിലും പേരും രേഖപ്പെടുത്തുക');
+    if (!newLeaderUsername.trim() || !newLeaderName.trim() || !newLeaderPassword.trim()) {
+      return alert('ദയവായി ലീഡറുടെ ഐഡി, പേര്, പാസ്‌വേഡ് എന്നിവ നൽകുക');
     }
 
     setSubmitting(true);
     try {
+      const cleanUsername = newLeaderUsername.trim().toUpperCase();
+
       await addDoc(collection(db, 'users'), {
-        email: newLeaderEmail.trim().toLowerCase(),
+        username: cleanUsername,
         name: newLeaderName.trim(),
+        password: newLeaderPassword.trim(),
         role: 'leader',
         group: newLeaderGroup,
         createdAt: serverTimestamp()
       });
 
-      setNewLeaderEmail('');
+      setNewLeaderUsername('');
       setNewLeaderName('');
+      setNewLeaderPassword('');
       setIsLeaderModalOpen(false);
-      alert(`Group ${newLeaderGroup}-ക്ക് പുതിയ ലീഡറെ പ്രൊഫൈൽ ചേർത്തു! 👑🎉`);
+      alert(`Group ${newLeaderGroup}-ക്ക് പുതിയ ലീഡറെ (${cleanUsername}) ചേർത്തു! 👑🎉`);
     } catch (error) {
       console.error('Error adding leader:', error);
       alert('ലീഡറെ ചേർക്കുന്നതിൽ പരാജയപ്പെട്ടു!');
@@ -305,7 +310,7 @@ export default function AdminDashboard() {
   };
 
   const handleLogout = async () => {
-    localStorage.removeItem('loggedInMember');
+    localStorage.removeItem('loggedInUser');
     await signOut(auth);
     router.push('/');
   };
@@ -389,27 +394,41 @@ export default function AdminDashboard() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
           <div>
             <h2 className="text-2xl font-bold text-slate-800">സ്വാഗതം! 👋</h2>
-            <p className="text-slate-500 text-sm">സാമ്പത്തിക അവലോകനവും പ്രധാന ഫോമുകളും താഴെ കാണാം.</p>
+            <p className="text-slate-500 text-sm">സാമ്പത്തിക അവലോകനവും വിവരങ്ങളും താഴെ കാണാം.</p>
           </div>
           
           <div className="flex flex-wrap items-center gap-2">
-            <a
-              href="/withdraw.pdf"
-              download="Withdrawal_Form.pdf"
-              className="bg-amber-500 hover:bg-amber-600 text-white font-medium px-3.5 py-2.5 rounded-xl transition flex items-center space-x-1.5 text-xs sm:text-sm shadow-sm"
-            >
-              <Download className="w-4 h-4" />
-              <span>പിൻവലിക്കൽ ഫോം</span>
-            </a>
+            {/* ഡൗൺലോഡ് ഫോമുകൾ (അഡ്മിനും ലീഡർക്കും മാത്രം കാണാം 🔒) */}
+            {userRole !== 'member' && (
+              <>
+                <a
+                  href="/withdraw.pdf"
+                  download="Withdrawal_Form.pdf"
+                  className="bg-amber-500 hover:bg-amber-600 text-white font-medium px-3.5 py-2.5 rounded-xl transition flex items-center space-x-1.5 text-xs sm:text-sm shadow-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>പിൻവലിക്കൽ ഫോം</span>
+                </a>
 
-            <a
-              href="/loan.pdf"
-              download="Loan_Form.pdf"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-3.5 py-2.5 rounded-xl transition flex items-center space-x-1.5 text-xs sm:text-sm shadow-sm"
-            >
-              <Download className="w-4 h-4" />
-              <span>ലോൺ ഫോം</span>
-            </a>
+                <a
+                  href="/loan.pdf"
+                  download="Loan_Form.pdf"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-3.5 py-2.5 rounded-xl transition flex items-center space-x-1.5 text-xs sm:text-sm shadow-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>ലോൺ ഫോം</span>
+                </a>
+
+                <a
+                  href="/rules.pdf"
+                  download="Rules_and_Regulations.pdf"
+                  className="bg-teal-600 hover:bg-teal-700 text-white font-medium px-3.5 py-2.5 rounded-xl transition flex items-center space-x-1.5 text-xs sm:text-sm shadow-sm"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  <span>റൂൾസ്</span>
+                </a>
+              </>
+            )}
 
             {userRole === 'admin' && (
               <button
@@ -795,7 +814,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 2. Member Modal (Auto Group Prefix Feature Included) */}
+      {/* 2. Member Modal */}
       {isMemberModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5 my-8 overflow-y-auto max-h-[90vh]">
@@ -896,7 +915,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 3. Add Leader Modal (New Admin Feature) */}
+      {/* 3. Leader Modal */}
       {isLeaderModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5 my-8 overflow-y-auto max-h-[90vh]">
@@ -934,13 +953,25 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">ഇമെയിൽ (Firebase Auth Email)</label>
+                <label className="block text-xs font-medium text-slate-600 mb-1">ലോഗിൻ ഐഡി (Leader ID)</label>
                 <input
-                  type="email"
+                  type="text"
                   required
-                  placeholder="leaderc@sundook.com"
-                  value={newLeaderEmail}
-                  onChange={(e) => setNewLeaderEmail(e.target.value)}
+                  placeholder="e.g., LEADER_C"
+                  value={newLeaderUsername}
+                  onChange={(e) => setNewLeaderUsername(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-600 uppercase"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">പാസ്‌വേഡ് (Password)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="ലോഗിൻ പാസ്‌വേഡ്"
+                  value={newLeaderPassword}
+                  onChange={(e) => setNewLeaderPassword(e.target.value)}
                   className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-600"
                 />
               </div>
